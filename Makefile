@@ -4,9 +4,9 @@ clean:
 	rm -f 1psa
 
 compile:
-	go build -o 1psa
+	go build -o bin/1psa
 
 install:
-	cp 1psa /usr/local/bin/
+	cp bin/1psa /usr/local/bin/
 
 .PHONY: all clean compile install
