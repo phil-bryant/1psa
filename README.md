@@ -1,11 +1,11 @@
 # 1psa - 1Password Service Account CLI
 
-A command-line tool that uses the 1Password Go SDK to list credentials available in vaults granted to a service account.
+A command-line tool that uses the 1Password Go SDK to list credentials available in vaults granted only to a particular 1Password service account. Perfect for constraining what an LLM can do.
 
 ## Prerequisites
 
 - Go 1.19 or later
-- A 1Password service account token stored in `~/.odus`
+- A 1Password service account token stored in `~/.1psa`
 
 ## Installation
 
@@ -46,7 +46,7 @@ go build -o 1psa
 
 1. Create a 1Password service account in your 1Password account
 2. Grant the service account access to the desired vaults with appropriate permissions
-3. Save the service account token in `~/.odus`
+3. Save the service account token in `~/.1psa`
 
 ## Features
 

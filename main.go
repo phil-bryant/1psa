@@ -90,13 +90,13 @@ func showUsage() {
 }
 
 func createClient() (*onepassword.Client, error) {
-	// Read the service account token from ~/.odus
+	// Read the service account token from ~/.1psa
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	tokenPath := filepath.Join(homeDir, ".odus")
+	tokenPath := filepath.Join(homeDir, ".1psa")
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service account token from %s: %w", tokenPath, err)
