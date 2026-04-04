@@ -1,7 +1,3 @@
-# #authored-by-ai #claude-4-sonnet
-# #autonomous-ai #cursor
-# SPDX-License-Identifier: MIT
-
-**/.DS_Store
-bin/
-check_results/
+.DS_Store
+bin/*
+.cursor/rules/*
