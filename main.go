@@ -16,6 +16,7 @@ func main() {
 	// Define flags
 	listFlag := flag.Bool("l", false, "List credentials available in vaults (optionally specify item name)")
 	fieldFlag := flag.Bool("f", false, "Get specific field value from item (requires item and field name)")
+	multiFieldFlag := flag.Bool("m", false, "Get multiple field values from item (requires item and one or more field names)")
 	usernameFlag := flag.String("u", "", "Get username field from item")
 	passwordFlag := flag.String("p", "", "Get password field from item")
 
@@ -30,6 +31,9 @@ func main() {
 		flagCount++
 	}
 	if *fieldFlag {
+		flagCount++
+	}
+	if *multiFieldFlag {
 		flagCount++
 	}
 	if *usernameFlag != "" {
@@ -70,6 +74,13 @@ func main() {
 			return
 		}
 		err = handleFieldCommand(client, args[0], args[1])
+	} else if *multiFieldFlag {
+		if len(args) < 2 {
+			fmt.Println("Error: -m flag requires item name and one or more field names")
+			showUsage()
+			return
+		}
+		err = handleMultiFieldCommand(client, args[0], args[1:])
 	} else if *usernameFlag != "" {
 		err = handleFieldCommand(client, *usernameFlag, "username")
 	} else if *passwordFlag != "" {
@@ -85,6 +96,7 @@ func showUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  1psa -l [item_name]         List credentials (optionally for specific item)")
 	fmt.Println("  1psa -f item_name field     Get specific field value from item")
+	fmt.Println("  1psa -m item_name fields... Get multiple field values in one call")
 	fmt.Println("  1psa -u item_name           Get username from item")
 	fmt.Println("  1psa -p item_name           Get password from item")
 }
@@ -200,15 +212,65 @@ func handleFieldCommand(client *onepassword.Client, itemName, fieldName string) 
 		return err
 	}
 
+	value, found := getFieldValue(item, fieldName)
+	if !found {
+		return fmt.Errorf("field '%s' not found in item '%s'", fieldName, itemName)
+	}
+
+	fmt.Println(value)
+	return nil
+}
+
+func handleMultiFieldCommand(client *onepassword.Client, itemName string, requestedFields []string) error {
+	item, err := findItemByName(client, itemName)
+	if err != nil {
+		return err
+	}
+
+	fields := normalizeRequestedFields(requestedFields)
+	if len(fields) == 0 {
+		return fmt.Errorf("no field names provided")
+	}
+
+	var missing []string
+	for _, fieldName := range fields {
+		value, found := getFieldValue(item, fieldName)
+		if !found {
+			missing = append(missing, fieldName)
+			continue
+		}
+		fmt.Printf("%s=%s\n", fieldName, value)
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("field(s) %s not found in item '%s'", strings.Join(missing, ", "), itemName)
+	}
+
+	return nil
+}
+
+func normalizeRequestedFields(input []string) []string {
+	var fields []string
+	for _, token := range input {
+		for _, part := range strings.Split(token, ",") {
+			field := strings.TrimSpace(part)
+			if field == "" {
+				continue
+			}
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func getFieldValue(item *onepassword.Item, fieldName string) (string, bool) {
 	// Look for the field
 	for _, field := range item.Fields {
 		if strings.EqualFold(field.Title, fieldName) {
-			fmt.Println(field.Value)
-			return nil
+			return field.Value, true
 		}
 	}
-
-	return fmt.Errorf("field '%s' not found in item '%s'", fieldName, itemName)
+	return "", false
 }
 
 func findItemByName(client *onepassword.Client, itemName string) (*onepassword.Item, error) {

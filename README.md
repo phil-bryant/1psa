@@ -35,6 +35,9 @@ go build -o 1psa
 # Get a specific field value from an item
 ./1psa -f item_name field_name
 
+# Get multiple fields from an item in one call
+./1psa -m item_name server database username password
+
 # Get username from an item (shortcut)
 ./1psa -u item_name
 
@@ -53,6 +56,7 @@ go build -o 1psa
 - **List all credentials**: Shows all vaults and items accessible to the service account
 - **List item fields**: Shows available field names for a specific item
 - **Get specific field values**: Retrieve any field value from an item
+- **Get multiple fields in one call**: Avoid repeated CLI startup/auth checks
 - **Username/password shortcuts**: Quick access to common credential fields
 - **Improved formatting**: Item information displayed on single lines
 - **Error handling**: Clear error messages and user feedback
@@ -84,6 +88,16 @@ Fields for item 'odus':
 ```bash
 $ ./1psa -f odus username
 root
+
+$ ./1psa -m odus username,password
+username=root
+password=gzxgzA4t!bsg33mdzsqH
+
+$ ./1psa -m odus server database username password
+server=db.example.internal
+database=appdb
+username=root
+password=gzxgzA4t!bsg33mdzsqH
 
 $ ./1psa -u odus
 root
