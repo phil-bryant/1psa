@@ -15,8 +15,15 @@ Design: Verify `brew` exists on `PATH`; if missing, print install command and st
 Tests:
 - Run with `brew` absent and verify failure includes Homebrew install guidance.
 
+R007 Statement: Fail early when Homebrew installation paths are not writable.
+Design: Verify write access for key Homebrew paths (`brew --prefix`, `Cellar`, `bin`, and `~/Library/Logs/Homebrew`) before attempting installs.
+Constraints:
+- On permission failure, print concise ownership/permission remediation commands and exit non-zero.
+Tests:
+- Simulate non-writable Homebrew path and verify script exits before first install attempt.
+
 R010  Statement: Provision Homebrew formula dependencies required by this project workflow.
-Design: Ensure these commands are available, installing when absent: `go`, `git`, `bats` (`bats-core`), and `clamscan` (`clamav`).
+Design: Ensure these commands are available, installing when absent: `go`, `git`, `bats` (`bats-core`), `clamscan` (`clamav`), `semgrep`, and `pipx`.
 Constraints:
 - Treat command availability on `PATH` as satisfied state.
 - Validate command availability after each install; fail if still missing.
@@ -24,14 +31,25 @@ Tests:
 - Run with each command missing and verify corresponding Homebrew install is attempted.
 - Run with all commands present and verify formula installs are skipped.
 
-R015  Statement: Ensure OWASP ZAP CLI wrapper is present for local security tooling.
-Design: Check configured ZAP wrapper path (default `/Applications/ZAP.app/Contents/MacOS/ZAP.sh`); install Homebrew cask `zap` when missing.
+R015  Statement: Provision Python security CLIs required by `04_run_security_checks.sh`.
+Design: Ensure `bandit`, `pip-audit`, and `detect-secrets` are available using `pipx` installs when commands are missing.
 Constraints:
-- Support `ZAP_APP_PATH`/`ZAP_CLI_PATH` environment overrides.
-- Fail with clear guidance if wrapper is still absent after install.
+- Treat command availability on `PATH` as satisfied state.
+- During script runtime, prepend `~/.local/bin` to `PATH` so freshly installed pipx commands are immediately discoverable.
+- After install, accept either direct `PATH` availability or executable presence under `~/.local/bin`.
 Tests:
-- Run without ZAP and verify `brew install --cask zap` is executed.
-- Simulate missing wrapper after cask install and verify explicit failure message.
+- Run with each command missing and verify `pipx install --include-deps` is attempted.
+- Run with all commands present and verify pipx installs are skipped.
+- Run in a shell without `~/.local/bin` on PATH and verify script still validates installed pipx commands.
+
+R017  Statement: Provision Go security CLIs required by `04_run_security_checks.sh`.
+Design: Ensure `gosec` and `govulncheck` are available; when missing, install via `go install <module>@latest`.
+Constraints:
+- Treat command availability on `PATH` as satisfied state.
+- After install, accept either direct `PATH` availability or executable presence under `$(go env GOPATH)/bin`.
+Tests:
+- Run with each command missing and verify `go install` is attempted.
+- Verify post-install checks pass when binaries land in `GOPATH/bin`.
 
 R020  Statement: Use standard `sudo` authentication for privileged Xcode initialization.
 Design: For Xcode first-launch and license acceptance commands, run privileged operations via `sudo` and allow interactive authentication.
@@ -51,7 +69,7 @@ Tests:
 - Run on machine already configured and verify Xcode phase exits without reconfiguration.
 
 R050  Statement: Emit explicit status output for each major prerequisite phase.
-Design: Print phase-level check/install/success/failure lines for Homebrew, tool formulas, ZAP, and Xcode phases.
+Design: Print phase-level check/install/success/failure lines for Homebrew, brew formulas, pipx tools, Go tools, and Xcode phases.
 Tests:
 - Run installer and verify each major phase emits clear status lines.
 
@@ -65,8 +83,17 @@ Design: End with success banner and current local repository path.
 Tests:
 - Verify successful run output includes success banner and repository path reference.
 
+R065 Statement: Support optional skip of Xcode privileged setup for non-interactive runs.
+Design: Honor `SKIP_XCODE_SETUP=true` to bypass Xcode first-launch/license checks while still running all non-Xcode prerequisite phases.
+Tests:
+- Run with `SKIP_XCODE_SETUP=true` and verify script skips Xcode phase cleanly.
+
 ## Changelog
 
+- 2026-04-28: Added Homebrew writable-path preflight checks to fail fast with explicit ownership remediation commands.
+- 2026-04-28: Added pipx PATH handling (`~/.local/bin`) so security CLIs are discoverable immediately after installation.
+- 2026-04-28: Added security-tool prerequisites (`semgrep`, `pipx`, `bandit`, `pip-audit`, `detect-secrets`, `gosec`, `govulncheck`) to unblock `04_run_security_checks.sh`.
+- 2026-04-28: Added optional `SKIP_XCODE_SETUP=true` behavior for non-interactive prerequisite runs.
 - 2026-04-28: Rewrote requirements to align with actual `01_install_prerequisites.sh` behavior and repository prerequisites.
 - 2026-04-28: Removed non-repo prerequisites: `swiftlint`, `perl`, `cpanminus`, `pg_install`, and pgTAP install flows.
 - 2026-04-28: Removed circular `1psa` bootstrap requirement; switched privileged Xcode steps to standard `sudo` authentication.

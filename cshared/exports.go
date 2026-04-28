@@ -15,7 +15,8 @@ import (
 //export OnepsaStringFree
 func OnepsaStringFree(p *C.char) {
 	if p != nil {
-		C.free(unsafe.Pointer(p))
+		// Required by cgo: memory allocated via C.CString must be released with C.free.
+		C.free(unsafe.Pointer(p)) // nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block
 	}
 }
 

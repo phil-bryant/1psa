@@ -23,6 +23,7 @@ func CreateClient() (*onepassword.Client, error) {
 
 // CreateClientWithTokenPath reads the service account token from the given file path.
 func CreateClientWithTokenPath(tokenPath string) (*onepassword.Client, error) {
+	// #nosec G304 -- caller controls token path for testability and alternate local token locations.
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service account token from %s: %w", tokenPath, err)

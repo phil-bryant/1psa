@@ -96,19 +96,19 @@ func TestGetMultiFieldText(t *testing.T) {
 				Title: "DB",
 				Fields: []onepassword.ItemField{
 					{Title: "username", Value: "root"},
-					{Title: "password", Value: "hunter2"},
+					{Title: "api_key", Value: "example-api-key-value"},
 				},
 			},
 		},
 		nil,
 	)
 
-	got, err := GetMultiFieldText(client, "db", []string{"username,password"})
+	got, err := GetMultiFieldText(client, "db", []string{"username,api_key"})
 	if err != nil {
 		t.Fatalf("GetMultiFieldText() error = %v", err)
 	}
 
-	const want = "username=root\npassword=hunter2\n"
+	const want = "username=root\napi_key=example-api-key-value\n" // pragma: allowlist secret
 	if got != want {
 		t.Fatalf("GetMultiFieldText() = %q, want %q", got, want)
 	}

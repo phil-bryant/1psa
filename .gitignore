@@ -2,5 +2,6 @@
 bin/*
 .cursor/rules/*
 1psa-venv/
+.security-reports/
 .vscode/
 .cursor/

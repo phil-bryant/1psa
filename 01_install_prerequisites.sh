@@ -1,13 +1,9 @@
 #!/bin/bash
 umask 007
-
-#R001: Run with bash and fail fast on unrecoverable errors.
-set -e
-
-# Configuration
+set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ZAP_APP_PATH="${ZAP_APP_PATH:-/Applications/ZAP.app}"
-ZAP_CLI_PATH="${ZAP_CLI_PATH:-${ZAP_APP_PATH}/Contents/MacOS/ZAP.sh}"
+SKIP_XCODE_SETUP="${SKIP_XCODE_SETUP:-false}"
+if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi
 
 print_header() {
     echo "============================================================"
@@ -17,10 +13,8 @@ print_header() {
 }
 
 ensure_homebrew() {
-    #R005: Verify Homebrew is present before package actions.
-    #R035: Emit explicit status lines for this prerequisite phase.
     echo "[Homebrew] Checking..."
-    if ! command -v brew >/dev/null 2>&1; then
+    if ! command -v brew; then
         echo "❌ [Homebrew] Not installed."
         echo ""
         echo "Please install Homebrew first by running:"
@@ -33,22 +27,33 @@ ensure_homebrew() {
     echo "✅ [Homebrew] Installed"
 }
 
+ensure_brew_writable() {
+    echo "[Homebrew] Verifying writable paths..."
+    BREW_PREFIX="$(brew --prefix)"
+    LOG_DIR="$HOME/Library/Logs/Homebrew"
+    for path in "$BREW_PREFIX" "$BREW_PREFIX/Cellar" "$BREW_PREFIX/bin" "$LOG_DIR"; do
+        if [ ! -e "$path" ]; then continue; fi
+        if [ -w "$path" ]; then continue; fi
+        echo "❌ [Homebrew] Path is not writable: $path"
+        echo "Run:"
+        echo "  sudo chown -R $(id -un) \"$path\""
+        echo "  chmod u+w \"$path\""
+        exit 1
+    done
+    echo "✅ [Homebrew] Writable paths verified"
+}
+
 ensure_brew_formula() {
-    #R012 #R030: Ensure required brew formulas are available.
-    #R035 #R040: Print status and skip install when already available.
     FORMULA="$1"
     COMMAND_NAME="${2:-$FORMULA}"
-
-    if command -v "$COMMAND_NAME" >/dev/null 2>&1; then
+    if command -v "$COMMAND_NAME"; then
         echo "✅ [$FORMULA] Available on PATH"
         return
     fi
-
     echo "⚠️  [$FORMULA] Missing on PATH"
     echo "[${FORMULA}] Installing via Homebrew..."
     brew install "$FORMULA"
-
-    if command -v "$COMMAND_NAME" >/dev/null 2>&1; then
+    if command -v "$COMMAND_NAME"; then
         echo "✅ [$FORMULA] Installed and available"
     else
         echo "❌ [$FORMULA] Install completed but command still unavailable"
@@ -56,44 +61,67 @@ ensure_brew_formula() {
     fi
 }
 
-ensure_zap_cli() {
-    #R070: Ensure local OWASP ZAP CLI is installed via Homebrew cask when missing.
-    #R075: Verify expected CLI wrapper path after install.
-    #R035 #R040: Emit status lines and keep phase idempotent.
-    echo ""
-    echo "[ZAP] Checking..."
-
-    if [ -x "$ZAP_CLI_PATH" ]; then
-        echo "✅ [ZAP] CLI available at ${ZAP_CLI_PATH}"
+ensure_pipx_tool() {
+    PACKAGE="$1"
+    COMMAND_NAME="${2:-$PACKAGE}"
+    if command -v "$COMMAND_NAME"; then
+        echo "✅ [${PACKAGE}] Available on PATH"
         return
     fi
-
-    echo "⚠️  [ZAP] CLI wrapper missing at ${ZAP_CLI_PATH}"
-    echo "[ZAP] Installing Homebrew cask 'zap'..."
-    brew install --cask zap
-
-    if [ -x "$ZAP_CLI_PATH" ]; then
-        echo "✅ [ZAP] Installed and CLI available at ${ZAP_CLI_PATH}"
+    echo "⚠️  [${PACKAGE}] Missing on PATH"
+    echo "[${PACKAGE}] Installing via pipx..."
+    pipx install --include-deps "$PACKAGE"
+    if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi
+    if command -v "$COMMAND_NAME"; then
+        echo "✅ [${PACKAGE}] Installed and available"
+    elif [ -x "$HOME/.local/bin/$COMMAND_NAME" ]; then
+        echo "✅ [${PACKAGE}] Installed at $HOME/.local/bin/${COMMAND_NAME}"
+        echo "Add ~/.local/bin to PATH for future shells."
     else
-        echo "❌ [ZAP] Install completed but CLI wrapper is still missing at ${ZAP_CLI_PATH}"
-        echo "Open ZAP.app once if macOS blocked first launch, then rerun this script."
+        echo "❌ [${PACKAGE}] Installed but command is still unavailable"
+        echo "Try: pipx ensurepath"
+        exit 1
+    fi
+}
+
+ensure_go_tool() {
+    COMMAND_NAME="$1"
+    MODULE_PATH="$2"
+    if command -v "$COMMAND_NAME"; then
+        echo "✅ [${COMMAND_NAME}] Available on PATH"
+        return
+    fi
+    echo "⚠️  [${COMMAND_NAME}] Missing on PATH"
+    echo "[${COMMAND_NAME}] Installing via go install ${MODULE_PATH}@latest ..."
+    go install "${MODULE_PATH}@latest"
+    GOPATH_BIN="$(go env GOPATH)/bin/${COMMAND_NAME}"
+    if command -v "$COMMAND_NAME"; then
+        echo "✅ [${COMMAND_NAME}] Installed and available"
+    elif [ -x "$GOPATH_BIN" ]; then
+        echo "✅ [${COMMAND_NAME}] Installed at ${GOPATH_BIN}"
+        echo "Add $(go env GOPATH)/bin to PATH for future shells."
+    else
+        echo "❌ [${COMMAND_NAME}] Install completed but command is still unavailable"
         exit 1
     fi
 }
 
 ensure_xcode_ready() {
-    #R060: Ensure xcodebuild exists and Xcode first-launch setup is complete.
-    #R065: Use standard sudo authentication for privileged Xcode initialization.
+    if [ "$SKIP_XCODE_SETUP" = "true" ]; then
+        echo ""
+        echo "[Xcode] Skipped (SKIP_XCODE_SETUP=true)"
+        return
+    fi
     echo ""
     echo "[Xcode] Checking..."
-    if ! command -v xcodebuild >/dev/null 2>&1; then
+    if ! command -v xcodebuild; then
         echo "❌ [Xcode] xcodebuild not found."
         echo "Install Xcode (or Command Line Tools) and run this script again."
         echo "Tip: xcode-select --install"
         exit 1
     fi
 
-    if xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+    if xcodebuild -checkFirstLaunchStatus; then
         echo "✅ [Xcode] First-launch status already configured"
         return
     fi
@@ -103,13 +131,13 @@ ensure_xcode_ready() {
     sudo xcodebuild -runFirstLaunch
 
     # Some Xcode installations still require explicit license acceptance.
-    if ! xcodebuild -license check >/dev/null 2>&1; then
+    if ! xcodebuild -license check; then
         echo "⚠️  [Xcode] Accepting Xcode license..."
         sudo -k
         sudo xcodebuild -license accept
     fi
 
-    if xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+    if xcodebuild -checkFirstLaunchStatus; then
         echo "✅ [Xcode] First-launch setup completed"
     else
         echo "❌ [Xcode] First-launch setup did not complete successfully"
@@ -118,7 +146,6 @@ ensure_xcode_ready() {
 }
 
 print_final_guidance() {
-    #R050: Print final readiness guidance and local repository path.
     echo ""
     echo "✅ All prerequisites are satisfied!"
     echo ""
@@ -129,16 +156,21 @@ print_final_guidance() {
 print_header
 
 ensure_homebrew
+ensure_brew_writable
 
 echo ""
 echo "[Tooling] Checking build dependencies..."
 ensure_brew_formula "go"
 ensure_brew_formula "git"
-#R055: Ensure bats shell test runner dependency is installed via Homebrew.
 ensure_brew_formula "bats-core" "bats"
-#R095: Ensure ClamAV antivirus scanner is available for repository malware scans.
 ensure_brew_formula "clamav" "clamscan"
-ensure_zap_cli
+ensure_brew_formula "semgrep"
+ensure_brew_formula "pipx"
+ensure_pipx_tool "bandit"
+ensure_pipx_tool "pip-audit" "pip-audit"
+ensure_pipx_tool "detect-secrets" "detect-secrets"
+ensure_go_tool "gosec" "github.com/securego/gosec/v2/cmd/gosec"
+ensure_go_tool "govulncheck" "golang.org/x/vuln/cmd/govulncheck"
 
 ensure_xcode_ready
 print_final_guidance
