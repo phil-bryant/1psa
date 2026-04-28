@@ -82,6 +82,33 @@ python -c "from python.onepsa_cffi import Onepsa; print(Onepsa().get_field('my-i
 2. Grant the service account access to the desired vaults with appropriate permissions
 3. Save the service account token in `~/.1psa`
 
+## Testing
+
+Run the full repository test suite:
+
+```bash
+make test
+```
+
+This runs:
+- Go package tests
+- Python wrapper tests under `python/test_*.py`
+- Shared library build needed for wrapper boundary tests (`bin/libonepsa.dylib`)
+
+Run individual parts:
+
+```bash
+make test-go
+make test-python
+make coverage
+```
+
+Notes:
+- `make test-python` builds the shared library first and exercises boundary validation in the exported C API via `ctypes`.
+- `make coverage` writes `coverage.out` and prints a function-level coverage summary.
+- `cffi`-specific tests are automatically skipped unless `cffi` is installed.
+- End-to-end commands that require real 1Password access still depend on a valid service account token in `~/.1psa`.
+
 ## Features
 
 - **List all credentials**: Shows all vaults and items accessible to the service account

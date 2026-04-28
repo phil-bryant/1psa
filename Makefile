@@ -11,6 +11,8 @@ LIB_INSTALL_DIR ?= /usr/local/lib
 LIB_INSTALL_PATH ?= $(LIB_INSTALL_DIR)/lib$(LIB_NAME).$(LIB_EXT)
 ARTIFACT_MODE ?= 755
 TRASH_ROOT ?= $(HOME)/.Trash
+COVER_PROFILE ?= coverage.out
+GO_TEST_FLAGS ?=
 
 all: build shared
 
@@ -50,12 +52,21 @@ compile: build
 
 compile-shared: shared
 
-test: build compile-shared
+test-go:
 	@echo "Running Go tests"
-	@go test ./...
-	@echo "Checking Python wrapper syntax"
-	@python -m py_compile python/onepsa_ctypes.py python/onepsa_cffi.py
+	@go test $(GO_TEST_FLAGS) ./...
+
+test-python: compile-shared
+	@echo "Running Python wrapper tests"
+	@python -m unittest discover -s python -p "test_*.py" -v
+
+test: build test-go test-python
 	@echo "All tests passed"
+
+coverage:
+	@$(MAKE) test-go GO_TEST_FLAGS="-coverprofile=$(COVER_PROFILE)"
+	@echo "Coverage summary from $(COVER_PROFILE)"
+	@go tool cover -func="$(COVER_PROFILE)"
 
 install: build shared
 	@echo "Installing $(NAME) to $(INSTALL_PATH)"
@@ -88,4 +99,4 @@ uninstall:
 		rm -f "$(LIB_INSTALL_PATH)" && echo "Removed $(LIB_INSTALL_PATH)"; \
 	else echo "No shared library install to uninstall"; fi
 
-.PHONY: all clean build shared compile compile-shared test install uninstall
+.PHONY: all clean build shared compile compile-shared test test-go test-python coverage install uninstall
