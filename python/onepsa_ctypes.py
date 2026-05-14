@@ -11,9 +11,11 @@ class OnepsaError(RuntimeError):
 
 class Onepsa:
     def __init__(self, lib_path: Optional[str] = None) -> None:
+        #R001: Resolve repository-default shared library path when not provided.
         if lib_path is None:
             lib_path = str(Path(__file__).resolve().parents[1] / "bin" / "libonepsa.dylib")
 
+        #R005: Load shared library and configure ctypes signatures for exports.
         self._lib = ctypes.CDLL(lib_path)
 
         self._lib.OnepsaStringFree.argtypes = [ctypes.c_void_p]
@@ -67,6 +69,7 @@ class Onepsa:
         return self._consume_result(out_ptr, err)
 
     def _consume_result(self, out_ptr, err: ctypes.c_char_p) -> str:
+        #R010: Convert pointer results into decoded strings or explicit errors.
         if err.value is not None:
             msg = err.value.decode("utf-8")
             self._lib.OnepsaStringFree(err)

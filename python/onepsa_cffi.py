@@ -12,10 +12,12 @@ class OnepsaError(RuntimeError):
 
 class Onepsa:
     def __init__(self, lib_path: Optional[str] = None) -> None:
+        #R001: Resolve repository-default shared library path when not provided.
         if lib_path is None:
             lib_path = str(Path(__file__).resolve().parents[1] / "bin" / "libonepsa.dylib")
 
         self._ffi = FFI()
+        #R005: Define cffi signatures for exported onepsa C functions.
         self._ffi.cdef(
             """
             void OnepsaStringFree(char* p);
@@ -59,6 +61,7 @@ class Onepsa:
         return self._consume_result(out, err)
 
     def _consume_result(self, out, err_ptr) -> str:
+        #R010: Convert error/output pointers into exceptions or decoded strings.
         err = err_ptr[0]
         if err != self._ffi.NULL:
             msg = self._ffi.string(err).decode("utf-8")

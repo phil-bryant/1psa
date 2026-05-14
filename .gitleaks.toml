@@ -1,0 +1,13 @@
+title = "1psa gitleaks baseline config"
+
+[allowlist]
+description = "Ignore generated and runtime paths that are not source-of-truth secrets."
+paths = [
+  '''^\.security-reports/''',
+  '''^bin/''',
+  '''^\.security-venv/''',
+  '''^\.venv/''',
+  '''^venv/''',
+  '''^.+-venv/''',
+  '''^\.git/''',
+]

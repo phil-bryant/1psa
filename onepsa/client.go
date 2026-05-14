@@ -12,6 +12,7 @@ import (
 
 // CreateClient reads the service account token from ~/.1psa and returns a 1Password client.
 func CreateClient() (*onepassword.Client, error) {
+	// #R001: Resolve default token path from user home directory.
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
@@ -24,6 +25,7 @@ func CreateClient() (*onepassword.Client, error) {
 // CreateClientWithTokenPath reads the service account token from the given file path.
 func CreateClientWithTokenPath(tokenPath string) (*onepassword.Client, error) {
 	// #nosec G304 -- caller controls token path for testability and alternate local token locations.
+	// #R005: Read and trim token content before SDK initialization.
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service account token from %s: %w", tokenPath, err)
@@ -31,6 +33,7 @@ func CreateClientWithTokenPath(tokenPath string) (*onepassword.Client, error) {
 
 	token := strings.TrimSpace(string(tokenBytes))
 
+	// #R010: Wrap SDK initialization failures with create-client context.
 	client, err := onepassword.NewClient(
 		context.TODO(),
 		onepassword.WithServiceAccountToken(token),

@@ -1,8 +1,11 @@
 #!/bin/bash
 umask 007
+#R001: Enforce strict shell behavior for hard failures.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#R065: Allow non-interactive prerequisite runs to skip Xcode setup.
 SKIP_XCODE_SETUP="${SKIP_XCODE_SETUP:-false}"
+if [ -d "$(go env GOPATH)/bin" ]; then PATH="$(go env GOPATH)/bin:$PATH"; fi
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi
 
 print_header() {
@@ -13,6 +16,7 @@ print_header() {
 }
 
 ensure_homebrew() {
+    #R005: Require Homebrew before any package install operations.
     echo "[Homebrew] Checking..."
     if ! command -v brew; then
         echo "❌ [Homebrew] Not installed."
@@ -28,6 +32,7 @@ ensure_homebrew() {
 }
 
 ensure_brew_writable() {
+    #R007: Fail fast when Homebrew install/log paths are not writable.
     echo "[Homebrew] Verifying writable paths..."
     BREW_PREFIX="$(brew --prefix)"
     LOG_DIR="$HOME/Library/Logs/Homebrew"
@@ -46,6 +51,7 @@ ensure_brew_writable() {
 ensure_brew_formula() {
     FORMULA="$1"
     COMMAND_NAME="${2:-$FORMULA}"
+    #R010: Treat command availability as already-satisfied formula state.
     if command -v "$COMMAND_NAME"; then
         echo "✅ [$FORMULA] Available on PATH"
         return
@@ -64,6 +70,7 @@ ensure_brew_formula() {
 ensure_pipx_tool() {
     PACKAGE="$1"
     COMMAND_NAME="${2:-$PACKAGE}"
+    #R015: Provision required Python security CLIs through pipx when missing.
     if command -v "$COMMAND_NAME"; then
         echo "✅ [${PACKAGE}] Available on PATH"
         return
@@ -87,6 +94,7 @@ ensure_pipx_tool() {
 ensure_go_tool() {
     COMMAND_NAME="$1"
     MODULE_PATH="$2"
+    #R017: Provision required Go security CLIs via go install when missing.
     if command -v "$COMMAND_NAME"; then
         echo "✅ [${COMMAND_NAME}] Available on PATH"
         return
@@ -106,6 +114,57 @@ ensure_go_tool() {
     fi
 }
 
+govulncheck_needs_rebuild() {
+    STDERR_FILE="$1"
+    python3 - <<'PY' "$STDERR_FILE"
+import pathlib, re, sys
+stderr_path = pathlib.Path(sys.argv[1])
+text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+patterns = [
+    r"Loading packages failed",
+    r"There are errors with the provided package patterns:",
+    r"file requires newer Go version",
+    r"uses version go\d+\.\d+ .* runs version go\d+\.\d+ of 'go list'",
+]
+raise SystemExit(0 if any(re.search(p, text, flags=re.IGNORECASE) for p in patterns) else 1)
+PY
+}
+
+ensure_govulncheck_compatible() {
+    #R018: Rebuild govulncheck when active Go toolchain mismatch is detected.
+    echo "[$(printf '%s' "govulncheck")] Verifying compatibility with active Go toolchain..."
+    LOCAL_STDERR="$(mktemp)"
+    set +e
+    govulncheck -json ./... >/dev/null 2>"$LOCAL_STDERR"
+    GOVULN_CODE=$?
+    set -e
+    if govulncheck_needs_rebuild "$LOCAL_STDERR"; then
+        echo "⚠️  [govulncheck] Go/tool mismatch detected; rebuilding with current Go..."
+        go install "golang.org/x/vuln/cmd/govulncheck@latest"
+        set +e
+        govulncheck -json ./... >/dev/null 2>"$LOCAL_STDERR"
+        GOVULN_CODE=$?
+        set -e
+        if govulncheck_needs_rebuild "$LOCAL_STDERR"; then
+            echo "❌ [govulncheck] Still incompatible after rebuild."
+            echo "Inspect stderr output below:"
+            sed 's/^/  /' "$LOCAL_STDERR"
+            rm -f "$LOCAL_STDERR"
+            exit 1
+        fi
+        echo "✅ [govulncheck] Rebuilt and compatible with current Go."
+    else
+        if [ "$GOVULN_CODE" -ne 0 ] && [ "$GOVULN_CODE" -ne 1 ]; then
+            echo "❌ [govulncheck] Command failed unexpectedly (exit ${GOVULN_CODE})."
+            sed 's/^/  /' "$LOCAL_STDERR"
+            rm -f "$LOCAL_STDERR"
+            exit 1
+        fi
+        echo "✅ [govulncheck] Compatible with current Go."
+    fi
+    rm -f "$LOCAL_STDERR"
+}
+
 ensure_xcode_ready() {
     if [ "$SKIP_XCODE_SETUP" = "true" ]; then
         echo ""
@@ -121,11 +180,13 @@ ensure_xcode_ready() {
         exit 1
     fi
 
+    #R030: Validate Xcode first-launch prerequisites and remediate when needed.
     if xcodebuild -checkFirstLaunchStatus; then
         echo "✅ [Xcode] First-launch status already configured"
         return
     fi
 
+    #R020: Run privileged Xcode initialization through sudo.
     echo "⚠️  [Xcode] First-launch setup required; running with sudo..."
     sudo -k
     sudo xcodebuild -runFirstLaunch
@@ -146,6 +207,7 @@ ensure_xcode_ready() {
 }
 
 print_final_guidance() {
+    #R060: Print final success and repository path guidance.
     echo ""
     echo "✅ All prerequisites are satisfied!"
     echo ""
@@ -155,6 +217,7 @@ print_final_guidance() {
 
 print_header
 
+#R050: Emit explicit phase-level status output through each installer stage.
 ensure_homebrew
 ensure_brew_writable
 
@@ -165,12 +228,15 @@ ensure_brew_formula "git"
 ensure_brew_formula "bats-core" "bats"
 ensure_brew_formula "clamav" "clamscan"
 ensure_brew_formula "semgrep"
+ensure_brew_formula "gitleaks"
 ensure_brew_formula "pipx"
 ensure_pipx_tool "bandit"
 ensure_pipx_tool "pip-audit" "pip-audit"
 ensure_pipx_tool "detect-secrets" "detect-secrets"
 ensure_go_tool "gosec" "github.com/securego/gosec/v2/cmd/gosec"
 ensure_go_tool "govulncheck" "golang.org/x/vuln/cmd/govulncheck"
+ensure_govulncheck_compatible
 
 ensure_xcode_ready
+#R055: Keep reruns idempotent by skipping already-available dependencies.
 print_final_guidance

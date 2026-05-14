@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	// #R001: Parse flags and enforce exactly one command mode.
 	listFlag := flag.Bool("l", false, "List credentials available in vaults (optionally specify item name)")
 	fieldFlag := flag.Bool("f", false, "Get specific field value from item (requires item and field name)")
 	multiFieldFlag := flag.Bool("m", false, "Get multiple field values from item (requires item and one or more field names)")
@@ -46,11 +47,13 @@ func main() {
 		return
 	}
 
+	// #R005: Initialize the onepsa client before handling command routing.
 	client, err := onepsa.CreateClient()
 	if err != nil {
 		log.Fatalf("Failed to create 1Password client: %v", err)
 	}
 
+	// #R010: Route each command mode to the matching onepsa text helper.
 	var out string
 	if *listFlag {
 		var itemName string

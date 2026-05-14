@@ -23,7 +23,7 @@ Tests:
 - Simulate non-writable Homebrew path and verify script exits before first install attempt.
 
 R010  Statement: Provision Homebrew formula dependencies required by this project workflow.
-Design: Ensure these commands are available, installing when absent: `go`, `git`, `bats` (`bats-core`), `clamscan` (`clamav`), `semgrep`, and `pipx`.
+Design: Ensure these commands are available, installing when absent: `go`, `git`, `bats` (`bats-core`), `clamscan` (`clamav`), `semgrep`, `gitleaks`, and `pipx`.
 Constraints:
 - Treat command availability on `PATH` as satisfied state.
 - Validate command availability after each install; fail if still missing.
@@ -50,6 +50,14 @@ Constraints:
 Tests:
 - Run with each command missing and verify `go install` is attempted.
 - Verify post-install checks pass when binaries land in `GOPATH/bin`.
+
+R018 Statement: Keep `govulncheck` aligned with the currently active Go toolchain.
+Design: Run a compatibility probe for `govulncheck` against repo packages; if Go-version/package-pattern mismatch diagnostics are detected, rebuild `govulncheck` via `go install ...@latest` and re-verify.
+Constraints:
+- Treat unresolved post-rebuild mismatch diagnostics as a hard failure in the prerequisites phase.
+Tests:
+- Simulate a stale `govulncheck` binary built with an older Go version and verify the script rebuilds it automatically.
+- Verify the script exits non-zero when mismatch diagnostics remain after rebuild.
 
 R020  Statement: Use standard `sudo` authentication for privileged Xcode initialization.
 Design: For Xcode first-launch and license acceptance commands, run privileged operations via `sudo` and allow interactive authentication.
@@ -92,6 +100,8 @@ Tests:
 
 - 2026-04-28: Added Homebrew writable-path preflight checks to fail fast with explicit ownership remediation commands.
 - 2026-04-28: Added pipx PATH handling (`~/.local/bin`) so security CLIs are discoverable immediately after installation.
+- 2026-05-14: Added `gitleaks` Homebrew prerequisite for secret scanning coverage in `04_run_security_checks.sh`.
+- 2026-05-14: Added automatic `govulncheck` rebuild/recheck logic to keep it compatible with the active Go toolchain.
 - 2026-04-28: Added security-tool prerequisites (`semgrep`, `pipx`, `bandit`, `pip-audit`, `detect-secrets`, `gosec`, `govulncheck`) to unblock `04_run_security_checks.sh`.
 - 2026-04-28: Added optional `SKIP_XCODE_SETUP=true` behavior for non-interactive prerequisite runs.
 - 2026-04-28: Rewrote requirements to align with actual `01_install_prerequisites.sh` behavior and repository prerequisites.

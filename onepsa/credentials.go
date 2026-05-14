@@ -15,12 +15,14 @@ func ListAllCredentialsText(client *onepassword.Client) (string, error) {
 
 // ListItemFieldsText returns the same text the CLI prints for "list" with a specific item name.
 func ListItemFieldsText(client *onepassword.Client, itemName string) (string, error) {
+	// #R001: Reject blank item names before performing lookups.
 	if strings.TrimSpace(itemName) == "" {
 		return "", fmt.Errorf("item name is required")
 	}
 	return formatItemFields(client, itemName)
 }
 
+// #R005: Render deterministic text output for vault/item listings.
 func formatListAll(client *onepassword.Client) (string, error) {
 	var b strings.Builder
 	ctx := context.TODO()
@@ -42,6 +44,7 @@ func formatListAll(client *onepassword.Client) (string, error) {
 		b.WriteByte('\n')
 
 		items, err := client.Items().List(ctx, vault.ID)
+		// #R010: Continue rendering when a vault item-list call fails.
 		if err != nil {
 			fmt.Fprintf(&b, "  Error listing items in vault %s: %v\n\n", vault.Title, err)
 			continue

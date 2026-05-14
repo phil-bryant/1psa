@@ -9,6 +9,9 @@ import (
 
 func TestCreateClientWithTokenPath(t *testing.T) {
 	t.Parallel()
+	// #R001: Client resolves default token location requirements.
+	// #R005: Client trims token content before SDK setup.
+	// #R010: Client returns wrapped error context on failures.
 
 	t.Run("returns useful error when token file missing", func(t *testing.T) {
 		t.Parallel()

@@ -23,6 +23,7 @@ class _FakeCtypesLib:
 
 
 class CtypesWrapperTests(unittest.TestCase):
+    #R001: Validate ctypes wrapper default-path and decode/error helper behavior.
     def test_default_library_path_is_used(self) -> None:
         with mock.patch("onepsa_ctypes.ctypes.CDLL") as cdll:
             onepsa_ctypes.Onepsa()
@@ -63,6 +64,7 @@ class CtypesWrapperTests(unittest.TestCase):
 
 @unittest.skipIf(onepsa_cffi is None, "cffi is not installed")
 class CffiWrapperTests(unittest.TestCase):
+    #R005: Validate cffi wrapper decode/error behavior when dependency is available.
     class _FakeLib:
         def __init__(self) -> None:
             self.freed = []
@@ -110,6 +112,7 @@ class CffiWrapperTests(unittest.TestCase):
 
 
 class SharedLibraryLoadSmokeTests(unittest.TestCase):
+    #R010: Run conditional shared-library load and argument-validation smoke tests.
     @staticmethod
     def _default_lib_path() -> Path:
         return Path(__file__).resolve().parents[1] / "bin" / "libonepsa.dylib"

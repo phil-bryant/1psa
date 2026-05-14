@@ -20,6 +20,7 @@ func OnepsaStringFree(p *C.char) {
 	}
 }
 
+// #R001: Export C-callable wrapper for list-all operation.
 //export OnepsaListAll
 func OnepsaListAll(errOut **C.char) *C.char {
 	return runWithErrOut(errOut, func() (string, error) {
@@ -31,6 +32,7 @@ func OnepsaListAll(errOut **C.char) *C.char {
 	})
 }
 
+// #R005: Validate required inputs before invoking field listing.
 //export OnepsaListFields
 func OnepsaListFields(item *C.char, errOut **C.char) *C.char {
 	if item == nil {
@@ -90,6 +92,7 @@ func fail(errOut **C.char, err error) *C.char {
 	return nil
 }
 
+// #R010: Return C strings for output/error paths with consistent memory handling.
 func runWithErrOut(errOut **C.char, fn func() (string, error)) *C.char {
 	s, err := fn()
 	if err != nil {

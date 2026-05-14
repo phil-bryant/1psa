@@ -9,6 +9,7 @@ import (
 
 // GetFieldValueText returns a single field value (same as CLI -f / -u / -p), without a trailing newline.
 func GetFieldValueText(client *onepassword.Client, itemName, fieldName string) (string, error) {
+	// #R001: Resolve and return a single field value for requested item.
 	item, err := findItemByName(client, itemName)
 	if err != nil {
 		return "", err
@@ -45,6 +46,7 @@ func GetMultiFieldText(client *onepassword.Client, itemName string, requestedFie
 		fmt.Fprintf(&b, "%s=%s\n", fieldName, value)
 	}
 
+	// #R010: Return one error listing unresolved requested fields.
 	if len(missing) > 0 {
 		return "", fmt.Errorf("field(s) %s not found in item '%s'", strings.Join(missing, ", "), itemName)
 	}
@@ -52,6 +54,7 @@ func GetMultiFieldText(client *onepassword.Client, itemName string, requestedFie
 	return b.String(), nil
 }
 
+// #R005: Normalize comma-separated and whitespace-padded field tokens.
 func normalizeRequestedFields(input []string) []string {
 	var fields []string
 	for _, token := range input {

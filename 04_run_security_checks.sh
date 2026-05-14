@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 umask 007
+#R001: Run in strict shell mode for deterministic failure behavior.
 set -euo pipefail
 
+#R001: Resolve repository root from script path and execute there.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 if [[ -d "$(go env GOPATH)/bin" ]]; then PATH="$(go env GOPATH)/bin:${PATH}"; fi
 if [[ -d "$HOME/.local/bin" ]]; then PATH="$HOME/.local/bin:${PATH}"; fi
 
+#R005: Resolve lane toggles and report destination from environment.
 REPORT_DIR="${SECURITY_REPORT_DIR:-./.security-reports}"
 RUN_SAST="${RUN_SAST:-true}"
 RUN_CLAMAV="${RUN_CLAMAV:-true}"
@@ -33,6 +36,7 @@ require_command() {
 }
 
 run_semgrep() {
+  #R015: Run Semgrep and persist JSON output for SAST aggregation.
   print_tool_header "Semgrep" "Repo-level static analysis for insecure patterns." "Uses curated Python and Go rulesets." \
     "https://semgrep.dev/"
   set +e
@@ -44,6 +48,7 @@ run_semgrep() {
 }
 
 run_bandit() {
+  #R015: Run Bandit against repo-local Python sources and write JSON output.
   print_tool_header "Bandit" "Python-focused static checks for risky code paths." "Targets this repo's ./python directory only." \
     "https://bandit.readthedocs.io/"
   if [[ ! -d "./python" ]]; then
@@ -69,6 +74,7 @@ PY
 }
 
 configure_pip_audit_python() {
+  #R050: Prefer project virtualenv interpreter for pip-audit when available.
   local project_python=""
   if [[ -x "${PROJECT_VENV_DIR}/bin/python3" ]]; then
     project_python="${PROJECT_VENV_DIR}/bin/python3"
@@ -85,6 +91,7 @@ configure_pip_audit_python() {
 }
 
 run_pip_audit() {
+  #R015: Run pip-audit lane and persist dependency-vulnerability report.
   print_tool_header "pip-audit" "Dependency vulnerability scan for Python packages." \
     "Audits dependencies from this repo's Python environment." "https://github.com/pypa/pip-audit"
   configure_pip_audit_python
@@ -96,6 +103,8 @@ run_pip_audit() {
 }
 
 run_detect_secrets() {
+  #R015: Execute detect-secrets and persist findings as JSON.
+  #R045: Exclude generated reports and build/runtime directories from secret scans.
   print_tool_header "detect-secrets" "Secret detection across tracked repository files." \
     "Flags likely credentials and high-entropy strings." "https://github.com/Yelp/detect-secrets"
   detect-secrets scan --all-files --force-use-all-plugins --exclude-files '(^\.git/|^\.security-reports/|^\.security-venv/|^bin/|.+-venv/)' \
@@ -119,7 +128,31 @@ if findings > 0:
 PY
 }
 
+run_gitleaks() {
+  #R015: Execute gitleaks and persist repository secret scan findings.
+  #R045: Keep gitleaks scoped away from generated artifacts.
+  print_tool_header "gitleaks" "Git-aware secret detection for tracked content." \
+    "Scans repository files for likely hardcoded credentials." "https://github.com/gitleaks/gitleaks"
+  local gitleaks_config="${SCRIPT_DIR}/.gitleaks.toml"
+  set +e
+  gitleaks dir . --config "$gitleaks_config" --report-format json --report-path "${REPORT_DIR}/gitleaks.json" --redact
+  local code=$?
+  set -e
+  if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then echo "gitleaks execution failed."; exit 1; fi
+  python3 - <<'PY' "${REPORT_DIR}/gitleaks.json"
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+results = payload if isinstance(payload, list) else []
+print(f"gitleaks findings: {len(results)} (report: {path})")
+for item in results[:5]:
+    print(f"  - {item.get('File', '?')}:{item.get('StartLine', '?')} [{item.get('RuleID', 'unknown-rule')}]")
+if len(results) > 5: print(f"  ... and {len(results) - 5} more")
+PY
+}
+
 run_gosec() {
+  #R020: Run gosec across all Go packages and persist JSON output.
   print_tool_header "gosec" "Go static analysis for security anti-patterns." \
     "Scans all Go packages in the workspace." "https://github.com/securego/gosec"
   set +e
@@ -130,13 +163,35 @@ run_gosec() {
 }
 
 run_govulncheck() {
+  #R020: Run govulncheck across all module packages and persist JSON output.
+  #R025: Fail on true execution/runtime errors distinct from findings.
   print_tool_header "govulncheck" "Go dependency and call-path vulnerability analysis." \
     "Finds known CVEs reachable from module code." "https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck"
+  local stderr_log="${REPORT_DIR}/govulncheck.stderr.log"
   set +e
-  govulncheck -json ./... > "${REPORT_DIR}/govulncheck.json"
+  govulncheck -json ./... > "${REPORT_DIR}/govulncheck.json" 2> "$stderr_log"
   local code=$?
   set -e
   if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then echo "govulncheck execution failed."; exit 1; fi
+  if ! python3 - <<'PY' "$stderr_log"
+import pathlib, re, sys
+stderr_path = pathlib.Path(sys.argv[1])
+text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+fatal_patterns = [
+    r"Loading packages failed",
+    r"There are errors with the provided package patterns:",
+    r"file requires newer Go version",
+    r"uses version go\d+\.\d+ .* runs version go\d+\.\d+ of 'go list'",
+]
+if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in fatal_patterns):
+    print("govulncheck failed due to Go/package-pattern compatibility issues.")
+    print(f"Inspect {stderr_path} for details.")
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+  then
+    exit 1
+  fi
   python3 - <<'PY' "${REPORT_DIR}/govulncheck.json"
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -154,6 +209,7 @@ PY
 }
 
 run_go_vet() {
+  #R020: Run go vet across all module packages and save diagnostics.
   print_tool_header "go vet" "Go analyzer for suspicious code constructs." \
     "Catches likely bugs with security impact potential." "https://pkg.go.dev/cmd/vet"
   set +e
@@ -173,8 +229,16 @@ PY
 }
 
 run_clamav() {
+  #R035: Support optional ClamAV lane with summary artifact integration.
+  #R025: Treat ClamAV runtime/setup errors as non-fatal execution metadata.
   if [[ "$RUN_CLAMAV" != "true" ]]; then
     printf '%s\n' '{"scanned_files":0,"infected_files":0,"exit_code":0,"skipped":true}' > "${REPORT_DIR}/clamav-summary.json"
+    : > "${REPORT_DIR}/clamav.log"
+    return 0
+  fi
+  if ! command -v clamscan >/dev/null 2>&1; then
+    echo "ClamAV skipped: clamscan command not found."
+    printf '%s\n' '{"scanned_files":0,"infected_files":0,"exit_code":127,"skipped":true,"error":"clamscan command not found"}' > "${REPORT_DIR}/clamav-summary.json"
     : > "${REPORT_DIR}/clamav.log"
     return 0
   fi
@@ -185,35 +249,62 @@ run_clamav() {
     . > "${REPORT_DIR}/clamav.log" 2>&1
   local code=$?
   set -e
-  if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then echo "ClamAV execution failed."; exit 1; fi
+  if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then
+    echo "ClamAV execution unavailable (exit ${code}); continuing without failing SAST."
+  fi
   python3 - <<'PY' "${REPORT_DIR}/clamav.log" "${REPORT_DIR}/clamav-summary.json" "$code"
 import json, pathlib, re, sys
 log_path, out_path, code = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), int(sys.argv[3])
 text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
 def pick(key):
     match = re.search(rf"{re.escape(key)}:\s+(\d+)", text); return int(match.group(1)) if match else 0
-out_path.write_text(json.dumps({"scanned_files": pick("Scanned files"), "infected_files": pick("Infected files"), "exit_code": code}))
+error_line = ""
+for line in text.splitlines():
+    if (
+        line.lower().startswith("error:")
+        or "No supported database files found" in line
+        or "LibClamAV Error" in line
+    ):
+        error_line = line.strip()
+        break
+total_errors = pick("Total errors")
+if not error_line and code not in (0, 1):
+    error_line = f"clamscan exited with code {code}; total_errors={total_errors}"
+out_path.write_text(json.dumps({
+    "scanned_files": pick("Scanned files"),
+    "infected_files": pick("Infected files"),
+    "total_errors": total_errors,
+    "exit_code": code,
+    "skipped": code not in (0, 1),
+    "error": error_line
+}))
 PY
+  if [[ "$code" -ne 0 && "$code" -ne 1 ]]; then
+    echo "ClamAV summary written to ${REPORT_DIR}/clamav-summary.json"
+  fi
 }
 
 run_sast_checks() {
+  #R010: Enforce SAST-only execution path (no DAST orchestration in this script).
   require_command semgrep
   require_command bandit
   require_command pip-audit
   require_command detect-secrets
+  require_command gitleaks
   require_command gosec
   require_command govulncheck
   require_command go
   require_command python3
-  if [[ "$RUN_CLAMAV" == "true" ]]; then require_command clamscan; fi
   run_semgrep
   run_bandit
   run_pip_audit
   run_detect_secrets
+  run_gitleaks
   run_gosec
   run_govulncheck
   run_go_vet
   run_clamav
+  #R030: Aggregate lane outputs into a summary and apply blocking policy.
   python3 - <<'PY' "${REPORT_DIR}" "${FAIL_ON_HIGH_CRITICAL}"
 import json, pathlib, sys
 report_dir = pathlib.Path(sys.argv[1]); fail_on_high = sys.argv[2].lower() == "true"
@@ -224,6 +315,7 @@ semgrep = read_json(report_dir / "semgrep.json", {"results": []}).get("results",
 bandit = read_json(report_dir / "bandit.json", {"results": []}).get("results", [])
 pip_audit = read_json(report_dir / "pip-audit.json", {"dependencies": []})
 secrets = read_json(report_dir / "detect-secrets.json", {"results": {}}).get("results", {})
+gitleaks = read_json(report_dir / "gitleaks.json", [])
 gosec = read_json(report_dir / "gosec.json", {"Issues": []}).get("Issues", [])
 clamav = read_json(report_dir / "clamav-summary.json", {"infected_files": 0})
 govuln_findings = 0
@@ -250,17 +342,19 @@ if go_vet_path.exists():
 semgrep_high = sum(1 for r in semgrep if str(r.get("extra", {}).get("severity", "")).upper() in {"ERROR", "HIGH", "CRITICAL"})
 bandit_high = sum(1 for r in bandit if str(r.get("issue_severity", "")).upper() in {"HIGH", "CRITICAL"})
 secret_findings = sum(len(v) for v in secrets.values()) if isinstance(secrets, dict) else 0
+gitleaks_findings = len(gitleaks) if isinstance(gitleaks, list) else 0
 gosec_high = sum(1 for r in gosec if str(r.get("severity", "")).upper() in {"HIGH", "CRITICAL"})
 pip_vulns = 0
 for dep in pip_audit.get("dependencies", []):
     if isinstance(dep, dict): pip_vulns += len(dep.get("vulns", []))
-high_critical_total = semgrep_high + bandit_high + secret_findings + gosec_high + int(clamav.get("infected_files", 0))
+high_critical_total = semgrep_high + bandit_high + secret_findings + gitleaks_findings + gosec_high + int(clamav.get("infected_files", 0))
 high_critical_total += govuln_findings + go_vet_findings
 summary = {
     "semgrep_total": len(semgrep), "semgrep_high_critical": semgrep_high,
     "bandit_total": len(bandit), "bandit_high_critical": bandit_high,
     "pip_audit_dependency_vulns": pip_vulns,
     "detect_secrets_total": secret_findings,
+    "gitleaks_total": gitleaks_findings,
     "gosec_total": len(gosec), "gosec_high_critical": gosec_high,
     "govulncheck_findings": govuln_findings,
     "go_vet_findings": go_vet_findings,
@@ -281,6 +375,7 @@ if [[ "$RUN_SAST" != "true" ]]; then
   exit 0
 fi
 
+#R040: Emit readable progress and completion output for operators.
 echo "Running SAST security checks. Reports: ${REPORT_DIR}"
 run_sast_checks
 echo "Static Application Security Testing (SAST) checks completed."
